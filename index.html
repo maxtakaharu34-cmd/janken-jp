@@ -100,17 +100,64 @@ header { display: flex; justify-content: space-between; align-items: center; }
   display: flex; align-items: center; justify-content: center;
   pointer-events: none; opacity: 0; transition: opacity 0.2s;
   z-index: 50;
+  background: rgba(0,0,0,0);
+  flex-direction: column; gap: 12px;
 }
 .banner.show { opacity: 1; }
+.banner.win  { background: rgba(40,180,90,0.45); }
+.banner.lose { background: rgba(180,30,60,0.45); }
+.banner.draw { background: rgba(180,160,40,0.35); }
 .banner .text {
   font-family: "Mochiy Pop P One", sans-serif;
-  font-size: clamp(36px, 12vw, 60px);
-  color: #ffe066; -webkit-text-stroke: 5px #000; paint-order: stroke fill;
-  text-shadow: 4px 4px 0 #e8133a, 8px 8px 0 #000;
+  font-size: clamp(46px, 16vw, 80px);
+  color: #ffe066; -webkit-text-stroke: 6px #000; paint-order: stroke fill;
+  text-shadow: 4px 4px 0 #e8133a, 10px 10px 0 #000;
+  animation: bannerPop 0.45s cubic-bezier(.2,.9,.2,1);
 }
-.banner.win  .text { color: #6dffb1; }
-.banner.lose .text { color: #ff5577; }
+.banner.win  .text { color: #6dffb1; text-shadow: 4px 4px 0 #1c8a4a, 10px 10px 0 #000; }
+.banner.lose .text { color: #ff5577; text-shadow: 4px 4px 0 #6a0a18, 10px 10px 0 #000; }
 .banner.draw .text { color: #ffe066; }
+@keyframes bannerPop {
+  0%   { transform: scale(0.3) rotate(-10deg); opacity: 0; }
+  60%  { transform: scale(1.2) rotate(4deg); opacity: 1; }
+  100% { transform: scale(1) rotate(-2deg); }
+}
+.banner .vs-row {
+  display: flex; align-items: center; justify-content: center; gap: 16px;
+  font-family: "Mochiy Pop P One", sans-serif; font-size: 36px;
+  background: rgba(0,0,0,0.6); padding: 8px 18px; border-radius: 999px;
+  border: 3px solid #ffe066;
+  animation: bannerPop 0.45s 0.15s cubic-bezier(.2,.9,.2,1) backwards;
+}
+.banner .vs-row .you { color: #6dffb1; }
+.banner .vs-row .cpu { color: #ff5577; }
+.banner .vs-row .vs  { color: #ffe066; font-size: 18px; }
+.banner .sub {
+  font-family: "Mochiy Pop P One", sans-serif; font-size: 16px;
+  color: #fff; text-shadow: 2px 2px 0 #000;
+  background: rgba(0,0,0,0.5); padding: 4px 14px; border-radius: 999px;
+  animation: bannerPop 0.45s 0.3s cubic-bezier(.2,.9,.2,1) backwards;
+}
+
+/* Countdown overlay */
+.countdown {
+  position: fixed; inset: 0; pointer-events: none;
+  display: flex; align-items: center; justify-content: center;
+  z-index: 40; opacity: 0;
+}
+.countdown.show { opacity: 1; }
+.countdown .step {
+  font-family: "Mochiy Pop P One", sans-serif;
+  font-size: clamp(70px, 22vw, 130px);
+  color: #ffe066; -webkit-text-stroke: 8px #000; paint-order: stroke fill;
+  text-shadow: 6px 6px 0 #e8133a;
+  animation: countPop 0.45s ease-out;
+}
+@keyframes countPop {
+  0%   { transform: scale(0.3) rotate(-15deg); opacity: 0; }
+  40%  { transform: scale(1.25) rotate(6deg); opacity: 1; }
+  100% { transform: scale(1) rotate(-3deg); opacity: 1; }
+}
 .bottom { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .bottom button {
   background: #ffe066; color: #000; border: 3px solid #000;
@@ -160,10 +207,62 @@ header { display: flex; justify-content: space-between; align-items: center; }
   </div>
   <div class="note">手をカメラに見せて、ボタンで一斉に出す！</div>
 </div>
-<div class="banner" id="banner"><div class="text" id="b-text"></div></div>
+<div class="banner" id="banner">
+  <div class="text" id="b-text"></div>
+  <div class="vs-row" id="b-vs" style="display:none">
+    <span class="you" id="b-you">✊</span>
+    <span class="vs">VS</span>
+    <span class="cpu" id="b-cpu">✊</span>
+  </div>
+  <div class="sub" id="b-sub" style="display:none"></div>
+</div>
+<div class="countdown" id="countdown"><div class="step" id="cd-step">!</div></div>
 <script type="module">
 import { HandLandmarker, FilesetResolver } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/vision_bundle.mjs';
 const $ = (id) => document.getElementById(id);
+
+// ---------- WebAudio SE ----------
+const Sound = (() => {
+  let ac = null;
+  const en = () => { if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)(); if (ac.state === 'suspended') ac.resume(); return ac; };
+  const beep = (f, d, t = 'square', g = 0.14) => {
+    const a = en();
+    const o = a.createOscillator(); const gn = a.createGain();
+    o.type = t; o.frequency.value = f; gn.gain.value = g;
+    gn.gain.exponentialRampToValueAtTime(0.0001, a.currentTime + d);
+    o.connect(gn).connect(a.destination); o.start(); o.stop(a.currentTime + d);
+  };
+  const slide = (f1, f2, d, t = 'sawtooth', g = 0.16) => {
+    const a = en();
+    const o = a.createOscillator(); const gn = a.createGain();
+    o.type = t;
+    o.frequency.setValueAtTime(f1, a.currentTime);
+    o.frequency.exponentialRampToValueAtTime(f2, a.currentTime + d);
+    gn.gain.value = g;
+    gn.gain.exponentialRampToValueAtTime(0.0001, a.currentTime + d);
+    o.connect(gn).connect(a.destination); o.start(); o.stop(a.currentTime + d);
+  };
+  return {
+    prime: en,
+    // "ジャン" "ケン" "ポン" — three rising notes, distinct
+    jan:  () => beep(440, 0.18, 'square', 0.18),
+    ken:  () => beep(523, 0.18, 'square', 0.18),
+    pon:  () => beep(700, 0.22, 'square', 0.20),
+    // Win = bright fanfare ascent
+    win:  () => {
+      [523, 659, 784, 1047, 1318].forEach((f, i) =>
+        setTimeout(() => beep(f, 0.18, 'triangle', 0.2), i * 90));
+      setTimeout(() => beep(1568, 0.4, 'triangle', 0.18), 500);
+    },
+    // Lose = trombone-style descent
+    lose: () => {
+      slide(440, 110, 0.6, 'sawtooth', 0.22);
+      setTimeout(() => beep(110, 0.3, 'sawtooth', 0.18), 600);
+    },
+    // Draw = neutral two-note
+    draw: () => { beep(523, 0.16, 'triangle', 0.16); setTimeout(() => beep(523, 0.16, 'triangle', 0.16), 200); }
+  };
+})();
 const video = $('video');
 const handCanvas = $('hand');
 const hctx = handCanvas.getContext('2d');
@@ -273,40 +372,101 @@ function loop() {
   requestAnimationFrame(loop);
 }
 
-function showBanner(t, cls, ms = 1100) {
+function showBanner(t, cls, opts = {}) {
   bText.textContent = t;
   banner.classList.remove('win', 'lose', 'draw');
   if (cls) banner.classList.add(cls);
+  // Show me-vs-cpu row + sub message when provided
+  const vs = $('b-vs'); const sub = $('b-sub');
+  if (opts.you && opts.cpu) {
+    $('b-you').textContent = opts.you;
+    $('b-cpu').textContent = opts.cpu;
+    vs.style.display = '';
+  } else { vs.style.display = 'none'; }
+  if (opts.sub) {
+    sub.textContent = opts.sub;
+    sub.style.display = '';
+  } else { sub.style.display = 'none'; }
   banner.classList.add('show');
   clearTimeout(showBanner._t);
-  showBanner._t = setTimeout(() => banner.classList.remove('show'), ms);
+  showBanner._t = setTimeout(() => banner.classList.remove('show'), opts.ms || 1900);
+}
+
+// Countdown 「ジャン・ケン・ポン！」
+function countdown(steps, callback) {
+  const cd = $('countdown');
+  const stepEl = $('cd-step');
+  let i = 0;
+  cd.classList.add('show');
+  const fns = [Sound.jan, Sound.ken, Sound.pon];
+  const tick = () => {
+    if (i >= steps.length) {
+      cd.classList.remove('show');
+      callback();
+      return;
+    }
+    stepEl.textContent = steps[i];
+    // restart animation
+    stepEl.style.animation = 'none';
+    void stepEl.offsetWidth;
+    stepEl.style.animation = '';
+    if (fns[i]) fns[i]();
+    i++;
+    setTimeout(tick, 600);
+  };
+  tick();
 }
 
 function play() {
   if (!running) return;
+  Sound.prime();
   const me = lastGesture;
-  if (me === '?') { showBanner('手をしっかり出して！', 'draw', 800); return; }
-  // てんちょー is unfair: 5% chance to match exactly = draw, 30% to slightly favor losing :)
-  // Just random for now
-  const choices = ['rock', 'scissors', 'paper'];
-  const cpu = choices[Math.floor(Math.random() * 3)];
-  // Animate CPU thinking
+  if (me === '?') { showBanner('手をしっかり出して！', 'draw', { ms: 900 }); return; }
+  // Disable button during sequence
+  $('btn-go').disabled = true;
+  // Animate CPU thinking shake
   const pic = $('cpu-pic');
   pic.classList.remove('shake'); void pic.offsetWidth; pic.classList.add('shake');
-  let i = 0;
+  const choices = ['rock', 'scissors', 'paper'];
+  let ti = 0;
   const ticker = setInterval(() => {
-    cpuEm.textContent = G[choices[i % 3]];
-    i++;
-  }, 90);
-  setTimeout(() => {
+    cpuEm.textContent = G[choices[ti % 3]];
+    ti++;
+  }, 100);
+  countdown(['ジャン', 'ケン', 'ポン！'], () => {
     clearInterval(ticker);
+    const cpu = choices[Math.floor(Math.random() * 3)];
     cpuEm.textContent = G[cpu];
     const r = result(me, cpu);
-    if (r === 'win')  { scores.win++;  showBanner('てんちょー、参った！', 'win'); }
-    if (r === 'lose') { scores.lose++; showBanner('てんちょーの勝ち！', 'lose'); }
-    if (r === 'draw') { scores.draw++; showBanner('あいこ…！', 'draw'); }
+    const meEm = G[me], cpuEmoji = G[cpu];
+    if (r === 'win')  {
+      scores.win++;
+      Sound.win();
+      showBanner('🎉 あなたの勝ち！', 'win', {
+        you: meEm, cpu: cpuEmoji,
+        sub: `${LABELS[me]} は ${LABELS[cpu]} に勝つ！`,
+        ms: 2200
+      });
+    } else if (r === 'lose') {
+      scores.lose++;
+      Sound.lose();
+      showBanner('💀 あなたの負け…', 'lose', {
+        you: meEm, cpu: cpuEmoji,
+        sub: `${LABELS[cpu]} に負けた…`,
+        ms: 2200
+      });
+    } else {
+      scores.draw++;
+      Sound.draw();
+      showBanner('🤝 あいこ', 'draw', {
+        you: meEm, cpu: cpuEmoji,
+        sub: 'もう一回！',
+        ms: 1600
+      });
+    }
     updateScores();
-  }, 1100);
+    setTimeout(() => { $('btn-go').disabled = false; }, 600);
+  });
 }
 function result(me, cpu) {
   if (me === cpu) return 'draw';
